@@ -1,0 +1,42 @@
+\documentclass[a4paper]{article}
+\usepackage{hyperref} % links using href
+\usepackage{syntax}   % BNF using grammar environment
+\usepackage{xcolor}   % colored text using textcolor
+\usepackage{graphicx} % scaling using scalebox
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+
+% remove paragraph indent
+\setlength{\parskip}{2mm}
+\setlength{\parindent}{0mm}
+
+
+% user-defined commands
+\newcommand{\textdesc}[1]{\textit{\textbf{#1}}}
+\newcommand{\descitem}[1]{\item \textdesc{#1}}
+\newcommand{\varname}[1]{\texttt{\textcolor{black}{#1}}}
+\newcommand{\typename}[1]{\texttt{\textcolor{purple}{#1}}}
+\newcommand{\methodname}[1]{\texttt{\textcolor{black}{#1}}}
+\newcommand{\funcname}[1]{\texttt{\textcolor{black}{#1}}}
+\newcommand{\includeSVG}[1]{
+  \includegraphics[scale=1.0]{./figs/#1.pdf}
+}
+\newcommand{\includeRaw}[1]{
+  \includegraphics[scale=1.0]{#1}
+}
+\def\figcaptionspacing{-7mm}
+
+\begin{document}
+
+\title{Software Engineering of Internet of Things\\\scalebox{.85}{Handin 0: Sampling Rate}}
+\author{Aslak Johansen <\href{mailto:asjo@mmmi.sdu.dk}{asjo@mmmi.sdu.dk}>}
+\date{Mar 10, 2021}
+\maketitle
+\vspace{5mm}
+
+\section{Introduction}
+
+text
+
+\end{document}
+
