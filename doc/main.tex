@@ -1,8 +1,9 @@
 \documentclass[a4paper]{article}
-\usepackage{hyperref} % links using href
-\usepackage{syntax}   % BNF using grammar environment
-\usepackage{xcolor}   % colored text using textcolor
-\usepackage{graphicx} % scaling using scalebox
+\usepackage{hyperref}            % links using href
+\usepackage{syntax}              % BNF using grammar environment
+\usepackage{xcolor}              % colored text using textcolor
+\usepackage{graphicx}            % scaling using scalebox
+\usepackage[cache=false]{minted} % code inclusion
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
 
@@ -14,6 +15,7 @@
 % user-defined commands
 \newcommand{\textdesc}[1]{\textit{\textbf{#1}}}
 \newcommand{\descitem}[1]{\item \textdesc{#1}}
+\newcommand{\filename}[1]{\texttt{\textcolor{black}{#1}}}
 \newcommand{\varname}[1]{\texttt{\textcolor{black}{#1}}}
 \newcommand{\typename}[1]{\texttt{\textcolor{purple}{#1}}}
 \newcommand{\methodname}[1]{\texttt{\textcolor{black}{#1}}}
@@ -25,6 +27,14 @@
   \includegraphics[scale=1.0]{#1}
 }
 \def\figcaptionspacing{-7mm}
+\newcommand{\includeCode}[5]{
+  \subsubsection{#5}
+  \label{src:#4}
+  {
+    \def\_{_}
+    \inputminted[fontsize=#1,breaklines]{#2}{{#3}}
+  }
+}
 
 \begin{document}
 
@@ -39,12 +49,139 @@
 
 \section{Introduction}
 
-text
+We are tasked in describing how fast a specific IoT device can perform a sample-transmit cycle given specific parameters for each of these two steps, using the build-in microcontroller and the RS232 link of the device. To accomplish this, we have implemented such a concrete system and constructed apparatus to measure how it performs.
+
+\section{Analysis}
+
+The main problem is in observing the RS232 link. The ideal solution would be to have a separate component capable of performing trustworthy high-resolution timing of events on the line. An oscilloscope would be a good choice for this. Without the oscilloscope, we can time it at either end of the link:
+\begin{enumerate}
+  \item If we time it at the source, then those measurements will include the time it takes to look up the timestamps and -- unless we are clever -- the time it takes to transfer them.
+  \item If we time it at the destination, then the timing will happen independently of the sampling and the transmission of values. The quality of the timing will then depend on the the apparatus at the destination end. An IoT device at this end should be able to do a good job, but that would leave us with a bit of extra complexity having to extract the results at a later point. This, however, is a moot point as we don't have access to a second device. The remaining option is a laptop. The laptop is running a general purpose operating system though, and because we are not qualified to place our code in kernel-space our timing code would be executed at the whim of the scheduler.
+\end{enumerate}
+
+\section{Design}
+
+Not much is needed in terms of design, and thus this section is skipped.
+
+\section{Implementation}
+\label{sec:implementation}
+
+The resulting code is implemented on top of FreeRTOS in a single task. Three versions of the codebase have been implemented:
+\begin{enumerate}
+  \descitem{adc} This version samples an analog input, marshals the value and transmits it using \funcname{printf}. In FreeRTOS, printf outputs to the standard serial port. The code can be found in appendix \ref{src:adc/adc/main.c}.
+  \descitem{adct} This version does the same as \textdesc{adc}, but includes a millisecond-resolution timestamp. The code can be found in appendix \ref{src:adct/adct/main.c}.
+  \descitem{t} This version times how long time it takes to get a timestamp 1 million times, and sends the result over the serial line. The code can be found in appendix \ref{src:t/t/main.c}.
+\end{enumerate}
+
+\section{Experimental Setup}
+
+Figure \ref{fig:setup} illustrates the experimental setup: A laptop is connected to an IoT device using a USB cable. That USB cable carries an RS232 signal. The IoT device shares ground and VCC with a voltage divider whose ground-leg is a thermistor. The divived voltage is connected to an ADC-capable pin on the IoT microcontroller.
+
+The individual components are:
+\begin{itemize}
+  \descitem{Laptop:} A Lenovo Thinkpad T460s with an Intel Core i5-6300U CPU and 36GB of RAM. It ran Ubuntu 20.04 LTS and used a serial logger\footnote{\url{https://github.com/aslakjohansen/serial-logger}} to timestamp (on a line-by-line basis) and dump serial communication to disk.
+  \descitem{IoT Device:} A PineCone BL602\footnote{\url{https://wiki.pine64.org/wiki/Nutcracker\#PineCone_BL602\_EVB\_information\_and\_schematics}} evaluation board from Pine64. The microcontroller on this board was running a firmware that implemented the variants from section \ref{sec:implementation}.
+  \descitem{Voltage Divider:} The voltage divider was made up of the Microchip MCP9700-E/TO thermistor IC and connected to pin 2 on the IoT PCB using a breadboard. This, however, should not have any effect on the findings.
+\end{itemize}
+
+\begin{figure}[btp]
+  \begin{center}
+    \scalebox{0.5}{\includeSVG{setup}}
+  \end{center}
+  \caption{\label{fig:setup} Experimental setup. The orange box defines the system and the blue marker the service under evaluation.}
+\end{figure}
+
+\subsection{Parameters}
+
+The following parameters have been identified:
+\begin{itemize}
+  \descitem{Serial Baud Rate} The rate at which the RS232 link communicates over the USB cable. \textsl{Value: 9600 b/s}.
+  \descitem{ADC Configuration} The rules to be followed by the ADC when requesting AD conversions. The most important components of these relates to clocking, oversampling and whether DMA is used (it is not). \textsl{Value: As described in the exercise}.
+\end{itemize}
+
+\subsection{Factors}
+
+We are using the implementation variants as factors.
+
+\subsection{Service and Metrics}
+
+The service that we want to observe is the stream of values being transferred over the RS232 serial link (via the USB cable). The relevant property (i.e., our metric) is the time it takes to produce a value. That is, the time between two successive values.
+
+\subsection{Workload}
+
+The goal of the experiment is to measure the rate at which the system can read ADC values and output them over the serial line. This represents the workload of the system, and we won't be restricting it artificially.
+
+\section{Results}
+
+Figure \ref{fig:adc:result} shows the results of running the \textdesc{adc} variant. It shows a primary peak around 0ms and a secondary one around 32ms. There's nothing in between. Accordingly, the observed phenomenon spans at least two classes of subphenomenons.
+
+\begin{figure}[btp]
+  \begin{center}
+    \includegraphics[scale=0.8]{./figs/hist.pdf}
+  \end{center}
+  \caption{\label{fig:adc:result} Histogram of the data resulting from running the adc2serial code in the experimental setup.}
+\end{figure}
+
+Figure \ref{fig:adct:heatmap} shows a heatmap comparing the timestamps between the device and the laptop by running the \textdesc{adct} variant. Again we observe a dichotomy of distributions on the laptop side, but this seems to have been introduced after the device. In figure \ref{fig:adct:comparison} we focus on all the measurements during the first 500ms of the experiment. There is approx 60 of these. For each of these the timestamp -- relative to the first timestamp -- is presented for both the laptop and device timestamps. It becomes obvious that the laptop timestamps progress much less uniformly than the device timestamps.
+
+It seems likely that this is a consequence of the laptop running a general purpose operating system where several lines arrive while the receiving process is not active. Once the process becomes active it can quickly process around 4 such lines. As the timestamping is a part of that process, there timestamps will be close to each other while the difference between the last timestamp in such a sequence and the first one in the next sequence is larger. Interesting, the laptop timestamps have a precision of 1ns, while the precision of the device timestamps is 1ms. In other words, the laptops produces the best precision and the device produces the best accuracy.
+
+\begin{figure}[btp]
+  \begin{center}
+    \includegraphics[scale=0.8]{./figs/heatmap.pdf}
+  \end{center}
+  \caption{\label{fig:adct:heatmap} Heatmap of the data resulting from running the adct2serial code in the experimental setup. The pinkish bins are empty, and the blue are full.}
+\end{figure}
+
+\begin{figure}[btp]
+  \begin{center}
+    \includegraphics[scale=0.8]{./figs/comparison.pdf}
+  \end{center}
+  \caption{\label{fig:adct:comparison} Comparison between timing code running on laptop and timing code running on device. This is based on the data from running the adct2serial code in the experimental setup.}
+\end{figure}
+
+Figure \ref{fig:t:hist} summarizes the result of running the \textdesc{t} variant. It shows that -- on average -- it takes less than 1us to produce a timestamp on the device. This pales in comparison to the time it takes to transmit 10 characters (a typical case for the \textdesc{adct} variant). Including start and stop bits, each character takes up 10 bit for at total of 100 bit. At a rate of 9600b/s this takes more than 10ms.
+
+\begin{figure}[btp]
+  \begin{center}
+    \includegraphics[scale=0.8]{./figs/thist.pdf}
+  \end{center}
+  \caption{\label{fig:t:hist} Histogram over the average amount of time it takes to produce a timestamp on the device.}
+\end{figure}
+
+Going back to the \textdesc{adct} variant, and focusing on the timestamps from the device, we get figure \ref{fig:adct:timediff}.
+\begin{figure}[btp]
+  \begin{center}
+    \includegraphics[scale=0.8]{./figs/timediff.pdf}
+  \end{center}
+  \caption{\label{fig:adct:timediff} Histogram over the first 1000 time measurements from the device side when running the \textdesc{adct} variant.}
+\end{figure}
+
+\section{Conclusion}
+
+Timing is complicated. We could have dived further into why the distribution in figure \ref{fig:adct:timediff} seems to be lower than that of figure \ref{fig:adct:heatmap}. There is clearly something going on. By post-processing the dataset we could have observed how the distribution changes over time. It seems likely that it is growing over time (e.g., because the strings being translated grows in size as new digits are added to the timestamps), but the behaviour could also be more complex. But for now we will have to accept the distribution of figure \ref{fig:adct:timediff}.
 
 \appendix
 
 \section{Code}
 
+Attached are all the files needed to build the code. The code, along with the \LaTeX code for this report, can be found at \url{https://github.com/aslakjohansen/sdu-iot2021-handin0}.
+
+\subsection{IoT Device Boilerplate}
+
+\includeCode{\tiny}{text}{../src/adc/README.md}{adc/README.md}{Readme (\filename{README.md})}
+\includeCode{\tiny}{shell}{../src/adc/genromap}{adc/genromap}{Build script (\filename{genromap})}
+\includeCode{\tiny}{makefile}{../src/adc/Makefile}{adc/Makefile}{Makefile (\filename{Makefile})}
+\includeCode{\tiny}{makefile}{../src/adc/proj\_config.mk}{adc/projconfig.mk}{Makefile Configuration (\filename{proj\_config.mk})}
+\includeCode{\tiny}{makefile}{../src/adc/adc/bouffalo.mk}{adc/adc/bouffalo.mk}{Makefile Component (\filename{adc/bouffalo.mk})}
+\includeCode{\tiny}{c}{../src/adc/adc/system.h}{adc/adc/system.h}{System Header (\filename{adc/system.h})}
+\includeCode{\tiny}{c}{../src/adc/adc/system.c}{adc/adc/system.c}{System Implementation (\filename{adc/system.h})}
+
+\subsection{Variants}
+
+\includeCode{\tiny}{c}{../src/adc/adc/main.c}{adc/adc/main.c}{Main for \textdesc{adc} Variant (\filename{adc/main.h})}
+\includeCode{\tiny}{c}{../src/adct/adct/main.c}{adct/adct/main.c}{Main for \textdesc{adct} Variant (\filename{adct/main.h})}
+\includeCode{\tiny}{c}{../src/t/t/main.c}{t/t/main.c}{Main for \textdesc{t} Variant (\filename{t/main.h})}
 
 \end{document}
 
